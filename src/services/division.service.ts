@@ -1,26 +1,11 @@
-// src/services/division.service.ts
 import Division from "../models/division.model";
 import Department from "../models/department.model";
 import Unit from "../models/unit.model";
-import User from "../models/user.model";
-import { v4 as uuidv4 } from "uuid";
-
-interface DivisionCreationDTO {
-  departmentId: string;
-  name: string;
-  description?: string;
-}
-
-interface DivisionUpdateDTO {
-  departmentId?: string;
-  name?: string;
-  description?: string;
-  isActive?: boolean;
-}
+import { Op } from "sequelize";
 
 class DivisionService {
   // Create a new division
-  async createDivision(divisionData: DivisionCreationDTO): Promise<Division> {
+  async createDivision(divisionData: Division) {
     try {
       // Validate department exists
       const department = await Department.findByPk(divisionData.departmentId);
@@ -28,7 +13,7 @@ class DivisionService {
         throw new Error("Invalid department");
       }
 
-      // Check if division with the same name in the department already exists
+      // Check if division name already exists within the department
       const existingDivision = await Division.findOne({
         where: {
           name: divisionData.name,
@@ -42,79 +27,88 @@ class DivisionService {
         );
       }
 
-      // Create division
-      return await Division.create({
-        ...divisionData,
-        id: uuidv4(),
-        isActive: true,
-      });
+      return await Division.create(divisionData);
     } catch (error) {
-      console.error("Division creation error:", error);
       throw error;
     }
   }
 
-  // Update division details
-  async updateDivision(
-    divisionId: string,
-    updateData: DivisionUpdateDTO
-  ): Promise<Division> {
-    try {
-      const division = await Division.findByPk(divisionId);
-
-      if (!division) {
-        throw new Error("Division not found");
-      }
-
-      // Validate department if provided
-      if (updateData.departmentId) {
-        const department = await Department.findByPk(updateData.departmentId);
-        if (!department) {
-          throw new Error("Invalid department");
-        }
-      }
-
-      // Check for unique division name within the department
-      if (updateData.name) {
-        const existingDivision = await Division.findOne({
-          where: {
-            name: updateData.name,
-            departmentId: updateData.departmentId || division.departmentId,
-          },
-        });
-
-        if (existingDivision && existingDivision.id !== divisionId) {
-          throw new Error("Division name must be unique within the department");
-        }
-      }
-
-      return await division.update(updateData);
-    } catch (error) {
-      console.error("Division update error:", error);
-      throw error;
-    }
-  }
-
-  // Get division by ID with associated data
-  async getDivisionById(divisionId: string) {
-    return await Division.findByPk(divisionId, {
-      include: [
-        { model: Department, as: "department" },
-        { model: Unit, as: "units" },
-        { model: User, as: "users" },
-      ],
+  // Get division by ID with optional units
+  async getDivisionById(id: string, includeDetails: boolean = false) {
+    const division = await Division.findByPk(id, {
+      include: includeDetails
+        ? [
+            {
+              model: Department,
+              attributes: ["id", "name"],
+            },
+            {
+              model: Unit,
+              attributes: ["id", "name", "isActive"],
+            },
+          ]
+        : [],
     });
-  }
-
-  // Soft delete division
-  async deactivateDivision(divisionId: string): Promise<void> {
-    const division = await Division.findByPk(divisionId);
 
     if (!division) {
       throw new Error("Division not found");
     }
 
-    await division.update({ isActive: false });
+    return division;
+  }
+
+  // Update division
+  async updateDivision(id: string, updateData: Partial<Division>) {
+    const division = await Division.findByPk(id);
+
+    if (!division) {
+      throw new Error("Division not found");
+    }
+
+    // Validate department if provided
+    if (updateData.departmentId) {
+      const department = await Department.findByPk(updateData.departmentId);
+      if (!department) {
+        throw new Error("Invalid department");
+      }
+    }
+
+    // Check for name conflict if name is being updated
+    if (updateData.name) {
+      const existingDivision = await Division.findOne({
+        where: {
+          name: updateData.name,
+          departmentId: updateData.departmentId || division.departmentId,
+          id: { [Op.ne]: id },
+        },
+      });
+
+      if (existingDivision) {
+        throw new Error("Division name already in use in this department");
+      }
+    }
+
+    return await division.update(updateData);
+  }
+
+  // Delete division
+  async deleteDivision(id: string) {
+    const division = await Division.findByPk(id);
+
+    if (!division) {
+      throw new Error("Division not found");
+    }
+
+    // Check for existing units before deleting
+    const existingUnits = await Unit.count({
+      where: { divisionId: id },
+    });
+
+    if (existingUnits > 0) {
+      throw new Error("Cannot delete division with existing units");
+    }
+
+    return await division.destroy();
   }
 
   // List divisions with optional filtering
@@ -122,15 +116,28 @@ class DivisionService {
     filters: {
       departmentId?: string;
       isActive?: boolean;
+      includeDetails?: boolean;
     } = {}
   ) {
+    const { departmentId, isActive, includeDetails } = filters;
+
     return await Division.findAll({
-      where: filters,
-      include: [
-        { model: Department, as: "department" },
-        { model: Unit, as: "units" },
-        { model: User, as: "users" },
-      ],
+      where: {
+        ...(departmentId ? { departmentId } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+      },
+      include: includeDetails
+        ? [
+            {
+              model: Department,
+              attributes: ["id", "name"],
+            },
+            {
+              model: Unit,
+              attributes: ["id", "name", "isActive"],
+            },
+          ]
+        : [],
     });
   }
 }

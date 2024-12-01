@@ -8,10 +8,16 @@ import { initializeAssociations } from "./models/associations";
 // Import models to ensure they are initialized
 import "./models/user.model";
 import "./models/role.model";
+import "./models/department.model";
+import "./models/division.model";
+import "./models/unit.model";
 
 // Import routes
 import userRoutes from "./routes/userRoutes";
 import roleRoutes from "./routes/roleRoutes";
+import authRoutes from "./routes/authRoutes";
+import departmentRoutes from "./routes/departmentRoutes";
+import divisionRoutes from "./routes/divisionRoutes";
 
 dotenv.config();
 
@@ -27,6 +33,9 @@ app.use(express.urlencoded({ extended: true }));
 // API Routes
 app.use("/api/users", userRoutes);
 app.use("/api/roles", roleRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/departments", departmentRoutes);
+app.use("/api/divisions", divisionRoutes);
 
 // Database Connection
 sequelize
@@ -38,6 +47,8 @@ sequelize
 
     // Sync models
     return sequelize.sync({
+      alter: true,
+
       // force: true  // Uncomment to reset tables (development only)
     });
   })

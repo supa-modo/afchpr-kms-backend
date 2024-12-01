@@ -23,6 +23,8 @@ interface UserAttributes {
   roleId: string;
   isActive: boolean;
   lastLogin?: Date;
+  passwordResetToken?: string;
+  passwordResetExpiry?: Date;
 }
 
 interface UserCreationAttributes
@@ -43,7 +45,8 @@ class User
   public unitId?: string;
   public roleId!: string;
   public isActive!: boolean;
-  public lastLogin?: Date;
+  public passwordResetToken?: string;
+  public passwordResetExpiry?: Date;
 
   // Method to check password
   public async comparePassword(candidatePassword: string): Promise<boolean> {
@@ -115,6 +118,14 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    passwordResetExpiry: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    passwordResetToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
   {
     sequelize,
@@ -164,26 +175,6 @@ User.init(
                 "format", // validatorKey
                 "beforeValidate", // fnName
                 [emailRegex] // fnArgs
-              ),
-            ]);
-          }
-        }
-
-        // Password complexity validation
-        if (user.password) {
-          const passwordRegex =
-            /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-          if (!passwordRegex.test(user.password)) {
-            throw new ValidationError("Validation Error", [
-              new ValidationErrorItem(
-                "Password must be at least 8 characters long, contain uppercase and lowercase letters, a number, and a special character", // message
-                ValidationErrorItemType["string violation"], // type
-                "password", // path
-                user.password, // value
-                user, // instance
-                "complexity", // validatorKey
-                "beforeValidate", // fnName
-                [passwordRegex] // fnArgs
               ),
             ]);
           }

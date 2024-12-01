@@ -1,138 +1,107 @@
-// src/controllers/authController.ts
 import { Request, Response } from "express";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import User from "../models/user.model";
-import Role from "../models/role.model";
+import AuthService from "../services/authService";
+// import { validationResult } from "express-validator";
 
 class AuthController {
-  // User login
+  // Login
   async login(req: Request, res: Response) {
     try {
+      // Validate request body
+      // const errors = validationResult(req);
+      // if (!errors.isEmpty()) {
+      //   return res.status(400).json({ errors: errors.array() });
+      // }
+
       const { username, password } = req.body;
+      const loginResult = await AuthService.login({ username, password });
 
-      // Find user by username
-      const user = await User.findOne({
-        where: { username },
-        include: [{ model: Role, as: "role" }],
+      // Set refresh token as HTTP-only cookie
+      res.cookie("refreshToken", loginResult.tokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
 
-      if (!user) {
-        return res
-          .status(401)
-          .json({ message: "Invalid username or password" });
-      }
-
-      // Check if user is active
-      if (!user.isActive) {
-        return res.status(403).json({ message: "User account is not active" });
-      }
-
-      // Compare passwords
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-
-      if (!isPasswordValid) {
-        return res
-          .status(401)
-          .json({ message: "Invalid username or password" });
-      }
-
-      // Generate JWT token
-      const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
-      const token = jwt.sign(
-        {
-          userId: user.id,
-          roleId: user.roleId,
-          username: user.username,
-        },
-        JWT_SECRET,
-        { expiresIn: "24h" }
-      );
-
-      res.json({
-        token,
-        user: user.username,
+      res.status(200).json({
+        message: "Login successful",
+        user: loginResult.user,
+        accessToken: loginResult.tokens.accessToken,
       });
     } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({ message: "Internal server error" });
+      res.status(401).json({
+        message: "Login failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 
-  // User logout (client-side token invalidation)
-  async logout(req: Request, res: Response) {
-    // In a JWT-based authentication, logout is typically handled client-side
-    // by removing the token. Here we can add additional logout logic if needed.
-    res.json({ message: "Logout successful" });
+
+  // Refresh Access Token
+  async refreshToken(req: Request, res: Response) {
+    try {
+      // Get refresh token from cookies
+      const refreshToken = req.cookies.refreshToken;
+
+      if (!refreshToken) {
+        return res.status(401).json({ message: "No refresh token provided" });
+      }
+
+      const { accessToken } = await AuthService.refreshAccessToken(
+        refreshToken
+      );
+
+      res.status(200).json({ accessToken });
+    } catch (error) {
+      res.status(401).json({
+        message: "Token refresh failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
 
-  // Password reset request
-  async forgotPassword(req: Request, res: Response) {
+  // Initiate Password Reset
+  async initiatePasswordReset(req: Request, res: Response) {
     try {
+      // Validate request body
+      // const errors = validationResult(req);
+      // if (!errors.isEmpty()) {
+      //   return res.status(400).json({ errors: errors.array() });
+      // }
+
       const { email } = req.body;
+      const result = await AuthService.initiatePasswordReset({ email });
 
-      // Find user by email
-      const user = await User.findOne({ where: { email } });
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Generate password reset token
-      const resetToken = jwt.sign(
-        { userId: user.id },
-        process.env.JWT_SECRET || "your-secret-key",
-        { expiresIn: "1h" }
-      );
-
-      // TODO: Implement email sending logic to send reset link
-      // This would typically involve:
-      // 1. Generating a unique reset link
-      // 2. Sending an email with the reset link
-      // 3. Storing the reset token in the database
-
-      res.json({
-        message: "Password reset link sent",
-        // In a real app, you wouldn't send the token directly
-        // This is just for demonstration
-        resetToken,
-      });
+      res.status(200).json(result);
     } catch (error) {
-      console.error("Forgot password error:", error);
-      res.status(500).json({ message: "Internal server error" });
+      res.status(400).json({
+        message: "Password reset initiation failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 
-  // Reset password
-  async resetPassword(req: Request, res: Response) {
+  // Confirm Password Reset
+  async confirmPasswordReset(req: Request, res: Response) {
     try {
+      // Validate request body
+      // const errors = validationResult(req);
+      // if (!errors.isEmpty()) {
+      //   return res.status(400).json({ errors: errors.array() });
+      // }
+
       const { token, newPassword } = req.body;
+      const result = await AuthService.confirmPasswordReset({
+        token,
+        newPassword,
+      });
 
-      // Verify reset token
-      const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-
-      // Find user
-      const user = await User.findByPk(decoded.userId);
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Hash new password
-      const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
-
-      // Update user password
-      await user.update({ password: hashedPassword });
-
-      res.json({ message: "Password reset successful" });
+      res.status(200).json(result);
     } catch (error) {
-      if (error instanceof jwt.TokenExpiredError) {
-        return res.status(400).json({ message: "Reset token has expired" });
-      }
-      console.error("Password reset error:", error);
-      res.status(500).json({ message: "Internal server error" });
+      res.status(400).json({
+        message: "Password reset failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 }
